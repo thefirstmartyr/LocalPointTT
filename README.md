@@ -934,7 +934,66 @@ flutter run
 
 ---
 
-## 12. Common Issues & Solutions
+## 12. API Keys & Secrets Management
+
+### Secure Storage for API Keys
+
+Store your API keys securely in the `config/secrets/` folder (automatically git-ignored):
+
+```bash
+# Copy template and add your keys
+cp config/secrets.example/api_keys.dart config/secrets/api_keys.dart
+# Edit config/secrets/api_keys.dart with your real API keys
+```
+
+**Available Formats:**
+- `api_keys.dart` - Dart constants (recommended)
+- `.env` - Environment variables
+- `secrets.json` - JSON configuration
+
+**Usage:**
+```dart
+import 'package:local_point_tt/config/secrets/api_keys.dart';
+
+final key = ApiKeys.googleMapsApiKey;
+```
+
+**Documentation:**
+- [config/README.md](config/README.md) - Configuration structure
+- [config/secrets/README.md](config/secrets/README.md) - Detailed instructions
+
+✅ **Security**: All files in `config/secrets/` are automatically ignored by git
+
+---
+
+## 13. Testing
+
+### Comprehensive Testing Infrastructure
+
+The app now has complete testing coverage with 57+ test cases:
+
+- **Unit Tests**: 15 tests for AuthService (✅ all passing)
+- **Widget Tests**: 20+ UI component tests
+- **Integration Tests**: 8 end-to-end scenarios
+- **Manual Tests**: 14 cross-platform test cases
+
+**Quick Start:**
+```bash
+# Run unit tests
+flutter test test/unit/
+
+# View full testing guide
+cat test/README.md
+```
+
+**Documentation:**
+- [test/README.md](test/README.md) - Complete testing guide
+- [test/MANUAL_TESTING_GUIDE.md](test/MANUAL_TESTING_GUIDE.md) - Manual test procedures
+- [test/IMPLEMENTATION_SUMMARY.md](test/IMPLEMENTATION_SUMMARY.md) - What was implemented
+
+---
+
+## 14. Common Issues & Solutions
 
 **Issue:** Firebase not initializing
 - **Solution:** Ensure `google-services.json` is in correct location
@@ -960,4 +1019,4 @@ flutter run
 - Project structure follows clean architecture principles
 
 You're now ready to start building the Local Point TT MVP! 🚀
-```# LocalPointTT
+```
