@@ -34,7 +34,7 @@ void main() {
       when(mockUserCredential.user).thenReturn(mockUser);
       when(mockUser.uid).thenReturn('test-uid-123');
       when(mockUser.updateDisplayName('$testFirstName $testLastName'))
-          .thenAnswer((_) async => null);
+          .thenAnswer((_) async {});
 
       // Create AuthService with mocked dependencies
       // Note: This test demonstrates the structure - actual implementation 

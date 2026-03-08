@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimensions.dart';
+import '../../../core/routes/app_routes.dart';
+import '../../../data/services/auth_service.dart';
+import '../../../data/services/firestore_data_service.dart';
 
 class ScanScreen extends StatefulWidget {
   const ScanScreen({super.key});
@@ -11,10 +14,12 @@ class ScanScreen extends StatefulWidget {
 }
 
 class _ScanScreenState extends State<ScanScreen> {
-  MobileScannerController cameraController = MobileScannerController(
+  final MobileScannerController cameraController = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
     facing: CameraFacing.back,
   );
+  final FirestoreDataService _dataService = FirestoreDataService();
+  final AuthService _authService = AuthService();
   bool _isProcessing = false;
 
   @override
@@ -23,42 +28,68 @@ class _ScanScreenState extends State<ScanScreen> {
     super.dispose();
   }
 
-  void _onDetect(BarcodeCapture capture) async {
+  Future<void> _onDetect(BarcodeCapture capture) async {
     if (_isProcessing) return;
 
     final List<Barcode> barcodes = capture.barcodes;
     if (barcodes.isEmpty) return;
 
     final String? code = barcodes.first.rawValue;
-    if (code == null) return;
+    if (code == null || code.trim().isEmpty) return;
 
     setState(() {
       _isProcessing = true;
     });
 
-    // TODO: Validate QR code with backend and join program
-    await Future.delayed(const Duration(seconds: 1));
+    try {
+      final result = await _tryJoinProgram(code.trim());
 
-    if (mounted) {
-      Navigator.of(context).pop();
-      _showSuccessDialog(code);
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.of(context).pushReplacementNamed(
+        AppRoutes.scanSuccess,
+        arguments: {
+          'title': 'Program Joined!',
+          'message': result,
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+      setState(() {
+        _isProcessing = false;
+      });
     }
   }
 
-  void _showSuccessDialog(String programCode) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Program Joined!'),
-        content: Text('Successfully joined loyalty program: $programCode'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
+  Future<String> _tryJoinProgram(String rawCode) async {
+    final userId = _authService.currentUser?.uid;
+    if (userId == null) {
+      throw Exception('You must be logged in to join a program.');
+    }
+
+    // Expected format: <programId>|<businessId>
+    final parts = rawCode.split('|');
+    if (parts.length == 2) {
+      final programId = parts[0].trim();
+      final businessId = parts[1].trim();
+
+      if (programId.isNotEmpty && businessId.isNotEmpty) {
+        await _dataService.enrollUserInProgram(
+          userId: userId,
+          programId: programId,
+          businessId: businessId,
+        );
+        return 'Successfully joined loyalty program $programId.';
+      }
+    }
+
+    throw Exception('Invalid QR code format. Use programId|businessId.');
   }
 
   @override
@@ -84,6 +115,25 @@ class _ScanScreenState extends State<ScanScreen> {
           MobileScanner(
             controller: cameraController,
             onDetect: _onDetect,
+            errorBuilder: (context, error) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppDimensions.spacingL),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.camera_alt_outlined, size: 40, color: AppColors.error),
+                      const SizedBox(height: AppDimensions.spacingS),
+                      Text(
+                        'Camera error: ${error.errorCode.name}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: AppColors.error),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
           
           // Overlay with instructions

@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
+import '../../../core/routes/app_routes.dart';
+import '../../../core/routes/route_guards.dart';
 import '../../../data/services/local_storage_service.dart';
-import '../onboarding/onboarding_screen.dart';
-import '../auth/login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -34,14 +34,19 @@ class _SplashScreenState extends State<SplashScreen> {
     bool onboardingComplete = LocalStorageService.isOnboardingComplete();
     print('📋 Onboarding complete: $onboardingComplete');
     
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (context) => onboardingComplete 
-            ? const LoginScreen() 
-            : const OnboardingScreen(),
-      ),
-    );
-    print('✅ Navigation complete');
+    String nextRoute;
+    
+    if (!onboardingComplete) {
+      nextRoute = AppRoutes.onboarding;
+    } else if (RouteGuards.isAuthenticated()) {
+      // User is authenticated, get their role-based route
+      nextRoute = await RouteGuards.getInitialRoute();
+    } else {
+      nextRoute = AppRoutes.login;
+    }
+    
+    Navigator.of(context).pushReplacementNamed(nextRoute);
+    print('✅ Navigation complete to: $nextRoute');
   }
   
   @override

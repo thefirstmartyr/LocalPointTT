@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:share_plus/share_plus.dart' if (dart.library.html) 'package:flutter/foundation.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/constants/app_dimensions.dart';
@@ -9,8 +9,8 @@ import '../../../data/models/loyalty_program_model.dart';
 import '../../../data/models/reward_model.dart';
 import '../../../data/models/business_model.dart';
 import '../../../data/models/user_program_model.dart';
-import '../../../data/models/transaction_model.dart';
 import '../../../data/services/auth_service.dart';
+import '../../../data/services/firestore_data_service.dart';
 
 class ProgramDetailScreen extends StatefulWidget {
   final String programId;
@@ -28,6 +28,7 @@ class ProgramDetailScreen extends StatefulWidget {
 
 class _ProgramDetailScreenState extends State<ProgramDetailScreen> {
   final AuthService _authService = AuthService();
+  final FirestoreDataService _firestoreService = FirestoreDataService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   
   bool _isLoading = true;
@@ -38,7 +39,6 @@ class _ProgramDetailScreenState extends State<ProgramDetailScreen> {
   List<RewardModel> _rewards = [];
   int _currentPoints = 0;
   String _qrCode = '';
-  String _userProgramId = '';
 
   @override
   void initState() {
@@ -95,205 +95,28 @@ class _ProgramDetailScreenState extends State<ProgramDetailScreen> {
         ..sort((a, b) => a.pointsRequired.compareTo(b.pointsRequired));
 
       // Load user's current points for this program
-      final userProgramQuery = await _firestore
+      final userProgramDoc = await _firestore
           .collection('user_programs')
           .where('userId', isEqualTo: userId)
           .where('programId', isEqualTo: widget.programId)
           .limit(1)
           .get();
 
-      if (userProgramQuery.docs.isNotEmpty) {
-        final userProgram = UserProgramModel.fromFirestore(userProgramQuery.docs.first);
-        _currentPoints = userProgram.currentPoints;
-        _userProgramId = userProgramQuery.docs.first.id;
+      if (userProgramDoc.docs.isNotEmpty) {
+        final userProgram = UserProgramModel.fromFirestore(userProgramDoc.docs.first);
+        _currentPoints = userProgram.pointsBalance;
       }
 
       // Generate QR code (userId|programId)
-      _qrCode = '$userId|${widget.programId}';
-
-      setState(() {
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _error = e.toString();
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _handleShare() async {
-    if (_business == null) return;
-
-    try {
-      await Share.share(
-        'Check out ${_business!.name}\'s loyalty program on Local Point TT! '
-        'Earn points and get rewards with every purchase.',
-        subject: 'Join ${_business!.name} Loyalty Program',
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to share: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _handleRedeem(RewardModel reward) async {
-    if (_currentPoints < reward.pointsRequired) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Not enough points to redeem this reward'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-      return;
-    }
-
-    // Show confirmation dialog
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Redeem Reward'),
-        content: Text(
-          'Redeem "${reward.name}" for ${reward.pointsRequired} points?\n\n'
-          'Your remaining balance will be ${_currentPoints - reward.pointsRequired} points.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Redeem'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    // Process redemption
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      final userId = _authService.currentUser?.uid;
-      if (userId == null) throw Exception('User not logged in');
-
-      final batch = _firestore.batch();
-
-      // Create transaction
-      final transactionRef = _firestore.collection('transactions').doc();
-      final transaction = TransactionModel(
-        id: transactionRef.id,
-        userId: userId,
-        businessId: widget.businessId,
-        programId: widget.programId,
-        type: TransactionType.redeem,
-        points: -reward.pointsRequired,
-        description: 'Redeemed: ${reward.name}',
-        timestamp: DateTime.now(),
-      );
-      batch.set(transactionRef, transaction.toMap());
-
-      // Update user points
-      if (_userProgramId.isNotEmpty) {
-        final userProgramRef = _firestore.collection('user_programs').doc(_userProgramId);
-        batch.update(userProgramRef, {
-          'pointsBalance': _currentPoints - reward.pointsRequired,
-          'lastActivityAt': Timestamp.now(),
-        });
-      }
-
-      await batch.commit();
-
-      setState(() {
-        _currentPoints -= reward.pointsRequired;
-        _isLoading = false;
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Successfully redeemed ${reward.name}!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to redeem: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoading) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Loading...')),
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    if (_error != null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Error')),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(AppDimensions.spacingL),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error_outline, size: 64, color: AppColors.error),
-                const SizedBox(height: AppDimensions.spacingL),
-                Text(
-                  _error!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: AppColors.textSecondary),
-                ),
-                const SizedBox(height: AppDimensions.spacingL),
-                ElevatedButton(
-                  onPressed: _loadProgramData,
-                  child: const Text('Retry'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    if (_business == null || _program == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Error')),
-        body: const Center(child: Text('Program not found')),
-      );
-    }
-
     return Scaffold(
       appBar: AppBar(
-        title: Text(_business!.name),
+        title: Text(businessName),
         actions: [
           IconButton(
             icon: const Icon(Icons.share_outlined),
-            onPressed: _handleShare,
+            onPressed: () {
+              // TODO: Implement share functionality
+            },
           ),
         ],
       ),
@@ -304,8 +127,8 @@ class _ProgramDetailScreenState extends State<ProgramDetailScreen> {
             // Business header
             Container(
               padding: const EdgeInsets.all(AppDimensions.spacingXL),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
                   colors: [AppColors.primary, AppColors.primaryVariant],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -329,7 +152,7 @@ class _ProgramDetailScreenState extends State<ProgramDetailScreen> {
                   ),
                   const SizedBox(height: AppDimensions.spacingM),
                   Text(
-                    _business!.name,
+                    businessName,
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 24,
@@ -338,7 +161,7 @@ class _ProgramDetailScreenState extends State<ProgramDetailScreen> {
                   ),
                   const SizedBox(height: AppDimensions.spacingS),
                   Text(
-                    '$_currentPoints points',
+                    '$currentPoints points',
                     style: const TextStyle(
                       color: Colors.white70,
                       fontSize: 18,
@@ -378,14 +201,14 @@ class _ProgramDetailScreenState extends State<ProgramDetailScreen> {
                       ],
                     ),
                     child: QrImageView(
-                      data: _qrCode,
+                      data: qrCode,
                       version: QrVersions.auto,
                       size: 250,
                       backgroundColor: Colors.white,
                     ),
                   ),
                   const SizedBox(height: AppDimensions.spacingM),
-                  const Text(
+                  Text(
                     AppStrings.tapToEnlarge,
                     style: TextStyle(
                       fontSize: 14,
@@ -397,30 +220,56 @@ class _ProgramDetailScreenState extends State<ProgramDetailScreen> {
             ),
             
             // Rewards section
-            if (_rewards.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.all(AppDimensions.spacingL),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Available Rewards',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
-                      ),
+            Padding(
+              padding: const EdgeInsets.all(AppDimensions.spacingL),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Available Rewards',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
                     ),
-                    const SizedBox(height: AppDimensions.spacingM),
-                    
-                    // Reward cards from Firestore
-                    ..._rewards.map((reward) => Padding(
-                      padding: const EdgeInsets.only(bottom: AppDimensions.spacingM),
-                      child: _buildRewardCard(reward),
-                    )),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: AppDimensions.spacingM),
+                  
+                  // Reward cards
+                  _buildRewardCard(
+                    title: 'Free Large Coffee',
+                    points: 500,
+                    currentPoints: currentPoints,
+                    description: 'Any size, any flavor',
+                    icon: Icons.local_cafe,
+                  ),
+                  const SizedBox(height: AppDimensions.spacingM),
+                  _buildRewardCard(
+                    title: '10% Off Purchase',
+                    points: 300,
+                    currentPoints: currentPoints,
+                    description: 'Valid on any purchase',
+                    icon: Icons.discount,
+                  ),
+                  const SizedBox(height: AppDimensions.spacingM),
+                  _buildRewardCard(
+                    title: 'Free Pastry',
+                    points: 200,
+                    currentPoints: currentPoints,
+                    description: 'Choose from daily selection',
+                    icon: Icons.cake,
+                  ),
+                  const SizedBox(height: AppDimensions.spacingM),
+                  _buildRewardCard(
+                    title: 'Buy 1 Get 1 Free',
+                    points: 750,
+                    currentPoints: currentPoints,
+                    description: 'On selected items',
+                    icon: Icons.redeem,
+                  ),
+                ],
               ),
+            ),
             
             // Program details
             Padding(
@@ -443,27 +292,13 @@ class _ProgramDetailScreenState extends State<ProgramDetailScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (_program!.pointsPerDollar > 0)
-                            ...[
-                              _buildDetailRow(
-                                Icons.card_giftcard,
-                                'Earn ${_program!.pointsPerDollar.toStringAsFixed(0)} points per \$1 spent',
-                              ),
-                              const SizedBox(height: AppDimensions.spacingM),
-                            ],
-                          if (_program!.pointsPerVisit > 0)
-                            ...[
-                              _buildDetailRow(
-                                Icons.check_circle,
-                                'Earn ${_program!.pointsPerVisit} points per visit',
-                              ),
-                              const SizedBox(height: AppDimensions.spacingM),
-                            ],
-                          _buildDetailRow(Icons.location_on, _business!.address),
+                          _buildDetailRow(Icons.card_giftcard, 'Earn 10 points per \$1 spent'),
                           const SizedBox(height: AppDimensions.spacingM),
-                          _buildDetailRow(Icons.phone, _business!.phone),
+                          _buildDetailRow(Icons.location_on, '123 Main Street, Port of Spain'),
                           const SizedBox(height: AppDimensions.spacingM),
-                          _buildDetailRow(Icons.info_outline, _program!.description),
+                          _buildDetailRow(Icons.access_time, 'Mon-Sat: 8am-8pm, Sun: 9am-5pm'),
+                          const SizedBox(height: AppDimensions.spacingM),
+                          _buildDetailRow(Icons.phone, '+1 868-123-4567'),
                         ],
                       ),
                     ),
@@ -477,9 +312,15 @@ class _ProgramDetailScreenState extends State<ProgramDetailScreen> {
     );
   }
 
-  Widget _buildRewardCard(RewardModel reward) {
-    final bool canRedeem = _currentPoints >= reward.pointsRequired;
-    final double progress = (_currentPoints / reward.pointsRequired).clamp(0.0, 1.0);
+  Widget _buildRewardCard({
+    required String title,
+    required int points,
+    required int currentPoints,
+    required String description,
+    required IconData icon,
+  }) {
+    final bool canRedeem = currentPoints >= points;
+    final double progress = (currentPoints / points).clamp(0.0, 1.0);
 
     return Card(
       child: Padding(
@@ -497,7 +338,7 @@ class _ProgramDetailScreenState extends State<ProgramDetailScreen> {
                     borderRadius: BorderRadius.circular(AppDimensions.radiusS),
                   ),
                   child: Icon(
-                    Icons.redeem,
+                    icon,
                     color: canRedeem ? AppColors.success : AppColors.primary,
                   ),
                 ),
@@ -507,7 +348,7 @@ class _ProgramDetailScreenState extends State<ProgramDetailScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        reward.name,
+                        title,
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
@@ -516,7 +357,7 @@ class _ProgramDetailScreenState extends State<ProgramDetailScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        reward.description,
+                        description,
                         style: const TextStyle(
                           fontSize: 12,
                           color: AppColors.textSecondary,
@@ -529,7 +370,7 @@ class _ProgramDetailScreenState extends State<ProgramDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      '${reward.pointsRequired} pts',
+                      '$points pts',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -562,7 +403,7 @@ class _ProgramDetailScreenState extends State<ProgramDetailScreen> {
               ),
               const SizedBox(height: AppDimensions.spacingS),
               Text(
-                '${reward.pointsRequired - _currentPoints} more points needed',
+                '${points - currentPoints} more points needed',
                 style: const TextStyle(
                   fontSize: 12,
                   color: AppColors.textSecondary,
@@ -574,7 +415,9 @@ class _ProgramDetailScreenState extends State<ProgramDetailScreen> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: () => _handleRedeem(reward),
+                  onPressed: () {
+                    // TODO: Implement redeem functionality
+                  },
                   child: const Text('Redeem Now'),
                 ),
               ),
@@ -587,7 +430,6 @@ class _ProgramDetailScreenState extends State<ProgramDetailScreen> {
 
   Widget _buildDetailRow(IconData icon, String text) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Icon(icon, size: 20, color: AppColors.primary),
         const SizedBox(width: AppDimensions.spacingS),
@@ -596,7 +438,7 @@ class _ProgramDetailScreenState extends State<ProgramDetailScreen> {
             text,
             style: const TextStyle(
               fontSize: 14,
-              color: AppColors.textPrimary,
+              color: AppColors.textSecondary,
             ),
           ),
         ),

@@ -6,6 +6,15 @@ class TransactionRepository {
   final FirebaseFirestore _firestore = FirebaseService.firestore;
   final String _collection = 'transactions';
 
+  bool _isMissingIndexError(Object error) {
+    return error is FirebaseException && error.code == 'failed-precondition';
+  }
+
+  List<TransactionModel> _sortedByNewest(List<TransactionModel> items) {
+    items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return items;
+  }
+
   // Create a transaction
   Future<String> createTransaction(TransactionModel transaction) async {
     try {
@@ -37,11 +46,23 @@ class TransactionRepository {
           .where('userId', isEqualTo: userId)
           .orderBy('timestamp', descending: true)
           .get();
-      
+
       return querySnapshot.docs
           .map((doc) => TransactionModel.fromFirestore(doc))
           .toList();
     } catch (e) {
+      if (_isMissingIndexError(e)) {
+        final fallbackSnapshot = await _firestore
+            .collection(_collection)
+            .where('userId', isEqualTo: userId)
+            .get();
+
+        return _sortedByNewest(
+          fallbackSnapshot.docs
+              .map((doc) => TransactionModel.fromFirestore(doc))
+              .toList(),
+        );
+      }
       throw Exception('Failed to get user transactions: $e');
     }
   }
@@ -58,11 +79,24 @@ class TransactionRepository {
           .where('businessId', isEqualTo: businessId)
           .orderBy('timestamp', descending: true)
           .get();
-      
+
       return querySnapshot.docs
           .map((doc) => TransactionModel.fromFirestore(doc))
           .toList();
     } catch (e) {
+      if (_isMissingIndexError(e)) {
+        final fallbackSnapshot = await _firestore
+            .collection(_collection)
+            .where('userId', isEqualTo: userId)
+            .where('businessId', isEqualTo: businessId)
+            .get();
+
+        return _sortedByNewest(
+          fallbackSnapshot.docs
+              .map((doc) => TransactionModel.fromFirestore(doc))
+              .toList(),
+        );
+      }
       throw Exception('Failed to get user transactions by business: $e');
     }
   }
@@ -79,11 +113,24 @@ class TransactionRepository {
           .where('programId', isEqualTo: programId)
           .orderBy('timestamp', descending: true)
           .get();
-      
+
       return querySnapshot.docs
           .map((doc) => TransactionModel.fromFirestore(doc))
           .toList();
     } catch (e) {
+      if (_isMissingIndexError(e)) {
+        final fallbackSnapshot = await _firestore
+            .collection(_collection)
+            .where('userId', isEqualTo: userId)
+            .where('programId', isEqualTo: programId)
+            .get();
+
+        return _sortedByNewest(
+          fallbackSnapshot.docs
+              .map((doc) => TransactionModel.fromFirestore(doc))
+              .toList(),
+        );
+      }
       throw Exception('Failed to get user transactions by program: $e');
     }
   }
@@ -100,11 +147,24 @@ class TransactionRepository {
           .where('type', isEqualTo: type.name)
           .orderBy('timestamp', descending: true)
           .get();
-      
+
       return querySnapshot.docs
           .map((doc) => TransactionModel.fromFirestore(doc))
           .toList();
     } catch (e) {
+      if (_isMissingIndexError(e)) {
+        final fallbackSnapshot = await _firestore
+            .collection(_collection)
+            .where('userId', isEqualTo: userId)
+            .where('type', isEqualTo: type.name)
+            .get();
+
+        return _sortedByNewest(
+          fallbackSnapshot.docs
+              .map((doc) => TransactionModel.fromFirestore(doc))
+              .toList(),
+        );
+      }
       throw Exception('Failed to get user transactions by type: $e');
     }
   }
@@ -117,11 +177,23 @@ class TransactionRepository {
           .where('businessId', isEqualTo: businessId)
           .orderBy('timestamp', descending: true)
           .get();
-      
+
       return querySnapshot.docs
           .map((doc) => TransactionModel.fromFirestore(doc))
           .toList();
     } catch (e) {
+      if (_isMissingIndexError(e)) {
+        final fallbackSnapshot = await _firestore
+            .collection(_collection)
+            .where('businessId', isEqualTo: businessId)
+            .get();
+
+        return _sortedByNewest(
+          fallbackSnapshot.docs
+              .map((doc) => TransactionModel.fromFirestore(doc))
+              .toList(),
+        );
+      }
       throw Exception('Failed to get business transactions: $e');
     }
   }
@@ -131,12 +203,13 @@ class TransactionRepository {
     return _firestore
         .collection(_collection)
         .where('userId', isEqualTo: userId)
-        .orderBy('timestamp', descending: true)
-        .limit(50)
         .snapshots()
-        .map((snapshot) => snapshot.docs
-            .map((doc) => TransactionModel.fromFirestore(doc))
-            .toList());
+        .map((snapshot) {
+          final items = snapshot.docs
+              .map((doc) => TransactionModel.fromFirestore(doc))
+              .toList();
+          return _sortedByNewest(items).take(50).toList();
+        });
   }
 
   // Get user total points earned

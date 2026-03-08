@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/constants/app_dimensions.dart';
+import '../../../data/models/user_model.dart';
+import '../../../data/services/auth_service.dart';
+import 'change_password_screen.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -12,11 +15,20 @@ class EditProfileScreen extends StatefulWidget {
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _firstNameController = TextEditingController(text: 'Test');
-  final _lastNameController = TextEditingController(text: 'User');
-  final _emailController = TextEditingController(text: 'test@example.com');
-  final _phoneController = TextEditingController(text: '+1 868-123-4567');
+  final _firstNameController = TextEditingController();
+  final _lastNameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final AuthService _authService = AuthService();
+
   bool _isLoading = false;
+  UserModel? _currentUserModel;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
 
   @override
   void dispose() {
@@ -27,31 +39,83 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     super.dispose();
   }
 
+  Future<void> _loadProfile() async {
+    final firebaseUser = _authService.currentUser;
+    if (firebaseUser == null) {
+      return;
+    }
+
+    final userData = await _authService.getUserData(firebaseUser.uid);
+    if (!mounted || userData == null) {
+      return;
+    }
+
+    setState(() {
+      _currentUserModel = userData;
+      _firstNameController.text = userData.firstName;
+      _lastNameController.text = userData.lastName;
+      _emailController.text = userData.email;
+      _phoneController.text = userData.phone ?? '';
+    });
+  }
+
   Future<void> _handleSave() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true;
-      });
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
 
-      // Mock save - simulate API call
-      await Future.delayed(const Duration(seconds: 1));
+    final firebaseUser = _authService.currentUser;
+    if (firebaseUser == null || _currentUserModel == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to load user profile.')),
+      );
+      return;
+    }
 
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final updatedUser = _currentUserModel!.copyWith(
+        firstName: _firstNameController.text.trim(),
+        lastName: _lastNameController.text.trim(),
+        email: _emailController.text.trim(),
+        phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
+      );
+
+      await _authService.updateUserData(updatedUser);
+      await firebaseUser.updateDisplayName(updatedUser.fullName);
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile updated successfully')),
+      );
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update profile: $e')),
+        );
+      }
+    } finally {
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile updated successfully')),
-        );
-        
-        Navigator.of(context).pop();
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final initials = (_firstNameController.text.isNotEmpty && _lastNameController.text.isNotEmpty)
+        ? '${_firstNameController.text[0]}${_lastNameController.text[0]}'.toUpperCase()
+        : 'LP';
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Edit Profile'),
@@ -62,7 +126,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           key: _formKey,
           child: Column(
             children: [
-              // Profile picture
               Stack(
                 children: [
                   Container(
@@ -72,10 +135,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       color: AppColors.primary,
                       shape: BoxShape.circle,
                     ),
-                    child: const Center(
+                    child: Center(
                       child: Text(
-                        'TD',
-                        style: TextStyle(
+                        initials,
+                        style: const TextStyle(
                           fontSize: 48,
                           fontWeight: FontWeight.bold,
                           color: Colors.white,
@@ -103,8 +166,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 ],
               ),
               const SizedBox(height: AppDimensions.spacingXL),
-              
-              // First Name
               TextFormField(
                 controller: _firstNameController,
                 decoration: const InputDecoration(
@@ -112,15 +173,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   prefixIcon: Icon(Icons.person_outline),
                 ),
                 validator: (value) {
-                  if (value == null || value.isEmpty) {
+                  if (value == null || value.trim().isEmpty) {
                     return AppStrings.errorRequired;
                   }
                   return null;
                 },
               ),
               const SizedBox(height: AppDimensions.spacingM),
-              
-              // Last Name
               TextFormField(
                 controller: _lastNameController,
                 decoration: const InputDecoration(
@@ -128,15 +187,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   prefixIcon: Icon(Icons.person_outline),
                 ),
                 validator: (value) {
-                  if (value == null || value.isEmpty) {
+                  if (value == null || value.trim().isEmpty) {
                     return AppStrings.errorRequired;
                   }
                   return null;
                 },
               ),
               const SizedBox(height: AppDimensions.spacingM),
-              
-              // Email
               TextFormField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
@@ -145,7 +202,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   prefixIcon: Icon(Icons.email_outlined),
                 ),
                 validator: (value) {
-                  if (value == null || value.isEmpty) {
+                  if (value == null || value.trim().isEmpty) {
                     return AppStrings.errorRequired;
                   }
                   if (!value.contains('@')) {
@@ -155,25 +212,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 },
               ),
               const SizedBox(height: AppDimensions.spacingM),
-              
-              // Phone
               TextFormField(
                 controller: _phoneController,
                 keyboardType: TextInputType.phone,
                 decoration: const InputDecoration(
                   labelText: AppStrings.phone,
+                  hintText: 'Optional',
                   prefixIcon: Icon(Icons.phone_outlined),
                 ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return AppStrings.errorRequired;
-                  }
-                  return null;
-                },
               ),
               const SizedBox(height: AppDimensions.spacingXL),
-              
-              // Save button
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -191,13 +239,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 ),
               ),
               const SizedBox(height: AppDimensions.spacingM),
-              
-              // Change password button
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton(
                   onPressed: () {
-                    // TODO: Navigate to change password screen
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const ChangePasswordScreen(),
+                      ),
+                    );
                   },
                   child: const Text('Change Password'),
                 ),

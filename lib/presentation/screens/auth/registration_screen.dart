@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/constants/app_dimensions.dart';
+import '../../../core/routes/app_routes.dart';
 import '../../../data/services/auth_service.dart';
-import '../home/home_screen.dart';
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({super.key});
@@ -76,11 +76,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           );
           
           // Navigate to home screen
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder: (context) => const HomeScreen(),
-            ),
-          );
+          Navigator.of(context).pushReplacementNamed(AppRoutes.home);
         }
       } catch (e) {
         if (mounted) {
@@ -100,6 +96,48 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     }
   }
 
+  Future<void> _handleGoogleSignUp() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final user = await _authService.signInWithGoogle();
+
+      if (user == null) {
+        // User cancelled
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        
+        // Navigate to home screen
+        Navigator.of(context).pushReplacementNamed(AppRoutes.home);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString()),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -112,6 +150,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       ),
       body: SafeArea(
         child: SingleChildScrollView(
+          key: const Key('registration_scroll_view'),
           padding: const EdgeInsets.all(AppDimensions.spacingL),
           child: Form(
             key: _formKey,
@@ -139,6 +178,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                 
                 // First Name field
                 TextFormField(
+                  key: const Key('reg_first_name_field'),
                   controller: _firstNameController,
                   keyboardType: TextInputType.name,
                   textCapitalization: TextCapitalization.words,
@@ -157,6 +197,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                 
                 // Last Name field
                 TextFormField(
+                  key: const Key('reg_last_name_field'),
                   controller: _lastNameController,
                   keyboardType: TextInputType.name,
                   textCapitalization: TextCapitalization.words,
@@ -175,6 +216,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                 
                 // Email field
                 TextFormField(
+                  key: const Key('reg_email_field'),
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
                   decoration: const InputDecoration(
@@ -195,16 +237,23 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                 
                 // Phone field
                 TextFormField(
+                  key: const Key('reg_phone_field'),
                   controller: _phoneController,
                   keyboardType: TextInputType.phone,
                   decoration: const InputDecoration(
                     labelText: AppStrings.phone,
                     prefixIcon: Icon(Icons.phone_outlined),
-                    hintText: '+1 868-123-4567',
+                    hintText: 'Optional (e.g. +1 868-123-4567)',
                   ),
                   validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return AppStrings.errorRequired;
+                    // Phone is optional, but if entered it should be a valid length.
+                    final phone = value?.trim() ?? '';
+                    if (phone.isEmpty) {
+                      return null;
+                    }
+                    final digitsOnly = phone.replaceAll(RegExp(r'\D'), '');
+                    if (digitsOnly.length < 7) {
+                      return 'Please enter a valid phone number';
                     }
                     return null;
                   },
@@ -213,6 +262,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                 
                 // Password field
                 TextFormField(
+                  key: const Key('reg_password_field'),
                   controller: _passwordController,
                   obscureText: _obscurePassword,
                   decoration: InputDecoration(
@@ -243,6 +293,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                 
                 // Confirm Password field
                 TextFormField(
+                  key: const Key('reg_confirm_password_field'),
                   controller: _confirmPasswordController,
                   obscureText: _obscureConfirmPassword,
                   decoration: InputDecoration(
@@ -273,8 +324,10 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                 
                 // Terms and conditions checkbox
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Checkbox(
+                      key: const Key('reg_terms_checkbox'),
                       value: _agreedToTerms,
                       onChanged: (value) {
                         setState(() {
@@ -283,15 +336,57 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                       },
                     ),
                     Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _agreedToTerms = !_agreedToTerms;
-                          });
-                        },
-                        child: const Text(
-                          'I agree to the Terms and Conditions',
-                          style: TextStyle(fontSize: 14),
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Wrap(
+                          children: [
+                            const Text(
+                              'I agree to the ',
+                              style: TextStyle(fontSize: 14),
+                            ),
+                            GestureDetector(
+                              onTap: () {
+                                Navigator.of(context).pushNamed(
+                                  AppRoutes.legalInfo,
+                                  arguments: {
+                                    'title': 'Terms of Service',
+                                    'content': 'Terms of Service content will be displayed here. This should be replaced with actual legal text from your organization.',
+                                  },
+                                );
+                              },
+                              child: const Text(
+                                'Terms of Service',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: AppColors.primary,
+                                  decoration: TextDecoration.underline,
+                                ),
+                              ),
+                            ),
+                            const Text(
+                              ' and ',
+                              style: TextStyle(fontSize: 14),
+                            ),
+                            GestureDetector(
+                              onTap: () {
+                                Navigator.of(context).pushNamed(
+                                  AppRoutes.legalInfo,
+                                  arguments: {
+                                    'title': 'Privacy Policy',
+                                    'content': 'Privacy Policy content will be displayed here. This should be replaced with actual legal text from your organization.',
+                                  },
+                                );
+                              },
+                              child: const Text(
+                                'Privacy Policy',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: AppColors.primary,
+                                  decoration: TextDecoration.underline,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -301,6 +396,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                 
                 // Sign up button
                 ElevatedButton(
+                  key: const Key('reg_submit_button'),
                   onPressed: _isLoading ? null : _handleRegistration,
                   child: _isLoading
                       ? const SizedBox(
@@ -336,9 +432,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                 
                 // Sign up with Google
                 OutlinedButton.icon(
-                  onPressed: () {
-                    // TODO: Implement Google Sign Up
-                  },
+                  onPressed: _isLoading ? null : _handleGoogleSignUp,
                   icon: const Icon(Icons.g_mobiledata, size: 24),
                   label: const Text('Sign up with Google'),
                 ),

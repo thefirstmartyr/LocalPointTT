@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../models/user_model.dart';
 
 class AuthService {
@@ -104,6 +105,59 @@ class AuthService {
   Future<void> resetPassword(String email) async {
     try {
       await _auth.sendPasswordResetEmail(email: email);
+    } catch (e) {
+      throw _handleAuthException(e);
+    }
+  }
+
+  // Sign in with Google
+  Future<UserModel?> signInWithGoogle() async {
+    try {
+      // Trigger the Google Sign-In flow
+      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+      
+      if (googleUser == null) {
+        // User cancelled the sign-in
+        return null;
+      }
+
+      // Obtain the auth details from the request
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+
+      // Create a new credential
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      // Sign in to Firebase with the Google credential
+      final UserCredential result = await _auth.signInWithCredential(credential);
+
+      if (result.user == null) {
+        throw Exception('Failed to sign in with Google');
+      }
+
+      // Check if user document exists in Firestore
+      final userDoc = await _firestore.collection('users').doc(result.user!.uid).get();
+
+      if (!userDoc.exists) {
+        // Create new user document for first-time Google sign-in
+        final names = (result.user!.displayName ?? '').split(' ');
+        final userModel = UserModel(
+          id: result.user!.uid,
+          firstName: names.isNotEmpty ? names.first : 'User',
+          lastName: names.length > 1 ? names.sublist(1).join(' ') : '',
+          email: result.user!.email ?? '',
+          phone: result.user!.phoneNumber,
+          createdAt: DateTime.now(),
+        );
+
+        await _firestore.collection('users').doc(result.user!.uid).set(userModel.toMap());
+        return userModel;
+      }
+
+      // Return existing user data
+      return await getUserData(result.user!.uid);
     } catch (e) {
       throw _handleAuthException(e);
     }

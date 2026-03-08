@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/constants/app_dimensions.dart';
+import '../../../core/routes/app_routes.dart';
 import '../../../data/services/auth_service.dart';
-import '../home/home_screen.dart';
-import 'registration_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -47,11 +46,7 @@ class _LoginScreenState extends State<LoginScreen> {
           });
           
           // Navigate to home screen
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder: (context) => const HomeScreen(),
-            ),
-          );
+          Navigator.of(context).pushReplacementNamed(AppRoutes.home);
         }
       } catch (e) {
         if (mounted) {
@@ -67,6 +62,48 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           );
         }
+      }
+    }
+  }
+
+  Future<void> _handleGoogleSignIn() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final user = await _authService.signInWithGoogle();
+
+      if (user == null) {
+        // User cancelled
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        
+        // Navigate to home screen
+        Navigator.of(context).pushReplacementNamed(AppRoutes.home);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString()),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
@@ -179,7 +216,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   alignment: Alignment.centerRight,
                   child: TextButton(
                     onPressed: () {
-                      // TODO: Implement forgot password
+                      Navigator.of(context).pushNamed(AppRoutes.forgotPassword);
                     },
                     child: const Text(AppStrings.forgotPassword),
                   ),
@@ -223,9 +260,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 
                 // Sign in with Google
                 OutlinedButton.icon(
-                  onPressed: () {
-                    // TODO: Implement Google Sign In
-                  },
+                  onPressed: _isLoading ? null : _handleGoogleSignIn,
                   icon: const Icon(Icons.g_mobiledata, size: 24),
                   label: const Text(AppStrings.signInWithGoogle),
                 ),
@@ -240,16 +275,23 @@ class _LoginScreenState extends State<LoginScreen> {
                       style: TextStyle(color: AppColors.textSecondary),
                     ),
                     TextButton(
+                      key: const Key('login_sign_up_cta'),
                       onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => const RegistrationScreen(),
-                          ),
-                        );
+                        Navigator.of(context).pushNamed(AppRoutes.registration);
                       },
                       child: const Text(AppStrings.signUp),
                     ),
                   ],
+                ),
+                const SizedBox(height: AppDimensions.spacingS),
+                Center(
+                  child: TextButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).pushNamed(AppRoutes.staffLogin);
+                    },
+                    icon: const Icon(Icons.badge_outlined),
+                    label: const Text('Staff login'),
+                  ),
                 ),
               ],
             ),

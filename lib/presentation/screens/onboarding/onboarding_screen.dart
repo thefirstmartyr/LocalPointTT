@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/constants/app_dimensions.dart';
+import '../../../core/routes/app_routes.dart';
 import '../../../data/services/local_storage_service.dart';
-import '../auth/login_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -53,9 +53,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     await LocalStorageService.setOnboardingComplete(true);
     if (!mounted) return;
     
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (context) => const LoginScreen()),
-    );
+    Navigator.of(context).pushReplacementNamed(AppRoutes.login);
   }
 
   @override

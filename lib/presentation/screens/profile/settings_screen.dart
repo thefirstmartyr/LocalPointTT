@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimensions.dart';
+import '../../../core/routes/app_routes.dart';
+import '../../../data/services/local_storage_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -18,6 +20,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _language = 'English';
 
   @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  void _loadSettings() {
+    setState(() {
+      _pushNotifications = LocalStorageService.getBool('settings_push_notifications', defaultValue: true);
+      _emailNotifications = LocalStorageService.getBool('settings_email_notifications');
+      _smsNotifications = LocalStorageService.getBool('settings_sms_notifications', defaultValue: true);
+      _promotionalEmails = LocalStorageService.getBool('settings_promotional_emails');
+      _biometricAuth = LocalStorageService.getBool('settings_biometric_auth');
+      _language = LocalStorageService.getString('settings_language', defaultValue: 'English');
+    });
+  }
+
+  Future<void> _saveBool(String key, bool value) async {
+    await LocalStorageService.setBool(key, value);
+  }
+
+  Future<void> _saveLanguage(String value) async {
+    await LocalStorageService.setString('settings_language', value);
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -25,7 +52,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       body: ListView(
         children: [
-          // Notifications Section
           const Padding(
             padding: EdgeInsets.all(AppDimensions.spacingL),
             child: Text(
@@ -49,6 +75,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     setState(() {
                       _pushNotifications = value;
                     });
+                    _saveBool('settings_push_notifications', value);
                   },
                 ),
                 const Divider(height: 1),
@@ -60,6 +87,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     setState(() {
                       _emailNotifications = value;
                     });
+                    _saveBool('settings_email_notifications', value);
                   },
                 ),
                 const Divider(height: 1),
@@ -71,6 +99,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     setState(() {
                       _smsNotifications = value;
                     });
+                    _saveBool('settings_sms_notifications', value);
                   },
                 ),
                 const Divider(height: 1),
@@ -82,14 +111,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     setState(() {
                       _promotionalEmails = value;
                     });
+                    _saveBool('settings_promotional_emails', value);
                   },
                 ),
               ],
             ),
           ),
           const SizedBox(height: AppDimensions.spacingXL),
-          
-          // Privacy & Security Section
           const Padding(
             padding: EdgeInsets.all(AppDimensions.spacingL),
             child: Text(
@@ -113,6 +141,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     setState(() {
                       _biometricAuth = value;
                     });
+                    _saveBool('settings_biometric_auth', value);
                   },
                   secondary: const Icon(Icons.fingerprint, color: AppColors.primary),
                 ),
@@ -122,24 +151,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Change Password'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () {
-                    // TODO: Navigate to change password screen
-                  },
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.security, color: AppColors.primary),
-                  title: const Text('Two-Factor Authentication'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    // TODO: Navigate to 2FA setup
+                    Navigator.of(context).pushNamed(AppRoutes.changePassword);
                   },
                 ),
               ],
             ),
           ),
           const SizedBox(height: AppDimensions.spacingXL),
-          
-          // Preferences Section
           const Padding(
             padding: EdgeInsets.all(AppDimensions.spacingL),
             child: Text(
@@ -160,9 +178,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Language'),
                   subtitle: Text(_language),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    _showLanguageDialog();
-                  },
+                  onTap: _showLanguageDialog,
                 ),
                 const Divider(height: 1),
                 ListTile(
@@ -170,15 +186,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Dark Mode'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () {
-                    // TODO: Toggle dark mode
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Dark mode is planned for a later release.')),
+                    );
                   },
                 ),
               ],
             ),
           ),
           const SizedBox(height: AppDimensions.spacingXL),
-          
-          // About Section
           const Padding(
             padding: EdgeInsets.all(AppDimensions.spacingL),
             child: Text(
@@ -199,7 +215,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Privacy Policy'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () {
-                    // TODO: Show privacy policy
+                    Navigator.of(context).pushNamed(
+                      AppRoutes.legalInfo,
+                      arguments: {
+                        'title': 'Privacy Policy',
+                        'content':
+                            'Local Point TT collects only the data needed to run loyalty programs. '
+                            'Your profile and transaction data are stored securely and are not sold to third parties.',
+                      },
+                    );
                   },
                 ),
                 const Divider(height: 1),
@@ -208,7 +232,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Terms of Service'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () {
-                    // TODO: Show terms of service
+                    Navigator.of(context).pushNamed(
+                      AppRoutes.legalInfo,
+                      arguments: {
+                        'title': 'Terms of Service',
+                        'content':
+                            'By using Local Point TT, you agree to follow program rules set by participating businesses. '
+                            'Abuse of rewards or fraudulent activity may lead to account suspension.',
+                      },
+                    );
                   },
                 ),
                 const Divider(height: 1),
@@ -239,9 +271,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               value: 'English',
               groupValue: _language,
               onChanged: (value) {
+                if (value == null) {
+                  return;
+                }
                 setState(() {
-                  _language = value!;
+                  _language = value;
                 });
+                _saveLanguage(value);
                 Navigator.pop(context);
               },
             ),
@@ -250,9 +286,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               value: 'Spanish',
               groupValue: _language,
               onChanged: (value) {
+                if (value == null) {
+                  return;
+                }
                 setState(() {
-                  _language = value!;
+                  _language = value;
                 });
+                _saveLanguage(value);
                 Navigator.pop(context);
               },
             ),

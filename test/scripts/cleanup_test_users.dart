@@ -16,6 +16,7 @@
 ///   - Deletes users with emails matching pattern: test+*@example.com
 ///   - Deletes corresponding Firestore users/{uid} documents
 ///   - Requires manual confirmation before execution
+library;
 
 /// Configuration class for cleanup operation
 class CleanupConfig {

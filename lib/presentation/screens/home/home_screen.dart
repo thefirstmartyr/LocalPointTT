@@ -1,19 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/constants/app_dimensions.dart';
+import '../../../core/routes/app_routes.dart';
 import '../../../data/services/firestore_data_service.dart';
 import '../../../data/services/firestore_test_data.dart';
 import '../../../data/services/auth_service.dart';
 import '../../../data/models/user_program_model.dart';
 import '../../../data/models/business_model.dart';
 import '../../../data/models/loyalty_program_model.dart';
-import '../programs/program_detail_screen.dart';
-import '../scan/scan_screen.dart';
-import '../notifications/notifications_screen.dart';
-import '../profile/edit_profile_screen.dart';
-import '../profile/settings_screen.dart';
-import '../auth/login_screen.dart';
+import '../../../data/models/transaction_model.dart';
+import '../../../data/repositories/transaction_repository.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -41,11 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             icon: const Icon(Icons.notifications_outlined),
             onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => const NotificationsScreen(),
-                ),
-              );
+              Navigator.of(context).pushNamed(AppRoutes.notifications);
             },
           ),
         ],
@@ -53,11 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: _screens[_currentIndex],
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => const ScanScreen(),
-            ),
-          );
+          Navigator.of(context).pushNamed(AppRoutes.scan);
         },
         icon: const Icon(Icons.qr_code_scanner),
         label: const Text('Scan'),
@@ -375,7 +365,8 @@ class _HomeTabState extends State<HomeTab> {
                       currentPoints: userProgram.currentPoints,
                       nextRewardPoints: nextMilestone,
                       nextRewardName: "Reward at $nextMilestone points",
-                      qrCode: "${userProgram.userId}-${userProgram.programId}",
+                      programId: userProgram.programId,
+                      businessId: userProgram.businessId,
                     ),
                   );
                 }),
@@ -392,21 +383,20 @@ class _HomeTabState extends State<HomeTab> {
     required int currentPoints,
     required int nextRewardPoints,
     required String nextRewardName,
-    required String qrCode,
+    required String programId,
+    required String businessId,
   }) {
     final progress = currentPoints / nextRewardPoints;
     final pointsNeeded = nextRewardPoints - currentPoints;
 
     return GestureDetector(
       onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => ProgramDetailScreen(
-              businessName: businessName,
-              currentPoints: currentPoints,
-              qrCode: qrCode,
-            ),
-          ),
+        Navigator.of(context).pushNamed(
+          AppRoutes.programDetail,
+          arguments: {
+            'programId': programId,
+            'businessId': businessId,
+          },
         );
       },
       child: Card(
@@ -744,199 +734,260 @@ class StatsTab extends StatelessWidget {
 }
 
 // History Tab
-class HistoryTab extends StatelessWidget {
+class HistoryTab extends StatefulWidget {
   const HistoryTab({super.key});
 
   @override
+  State<HistoryTab> createState() => _HistoryTabState();
+}
+
+class _HistoryTabState extends State<HistoryTab> {
+  final TransactionRepository _transactionRepository = TransactionRepository();
+  final AuthService _authService = AuthService();
+
+  _HistoryFilter _selectedFilter = _HistoryFilter.all;
+  List<TransactionModel> _allTransactions = [];
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTransactions();
+  }
+
+  Future<void> _loadTransactions() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final userId = _authService.currentUser?.uid;
+      if (userId == null) {
+        throw Exception('User not logged in');
+      }
+
+      final transactions = await _transactionRepository.getUserTransactions(userId);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _allTransactions = transactions;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final filteredTransactions = _allTransactions.where((transaction) {
+      switch (_selectedFilter) {
+        case _HistoryFilter.earned:
+          return transaction.type == TransactionType.earn;
+        case _HistoryFilter.redeemed:
+          return transaction.type == TransactionType.redeem;
+        case _HistoryFilter.all:
+          return true;
+      }
+    }).toList();
+
     return Column(
       children: [
-        // Filter tabs
         Container(
           padding: const EdgeInsets.all(AppDimensions.spacingM),
           child: Row(
             children: [
               Expanded(
-                child: _buildFilterChip('All', true),
+                child: _buildFilterChip(
+                  label: 'All',
+                  isSelected: _selectedFilter == _HistoryFilter.all,
+                  onTap: () => setState(() => _selectedFilter = _HistoryFilter.all),
+                ),
               ),
               const SizedBox(width: AppDimensions.spacingS),
               Expanded(
-                child: _buildFilterChip('Earned', false),
+                child: _buildFilterChip(
+                  label: 'Earned',
+                  isSelected: _selectedFilter == _HistoryFilter.earned,
+                  onTap: () => setState(() => _selectedFilter = _HistoryFilter.earned),
+                ),
               ),
               const SizedBox(width: AppDimensions.spacingS),
               Expanded(
-                child: _buildFilterChip('Redeemed', false),
+                child: _buildFilterChip(
+                  label: 'Redeemed',
+                  isSelected: _selectedFilter == _HistoryFilter.redeemed,
+                  onTap: () => setState(() => _selectedFilter = _HistoryFilter.redeemed),
+                ),
               ),
             ],
           ),
         ),
-        
-        // Transaction list
         Expanded(
-          child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: AppDimensions.spacingL),
-            children: [
-              _buildTransactionItem(
-                icon: Icons.add_circle,
-                iconColor: AppColors.success,
-                title: "Joe's Coffee Shop",
-                subtitle: 'Purchase points earned',
-                points: '+50',
-                pointsColor: AppColors.success,
-                date: 'Today, 2:30 PM',
-              ),
-              _buildTransactionItem(
-                icon: Icons.redeem,
-                iconColor: AppColors.warning,
-                title: "Best Bakery TT",
-                subtitle: 'Redeemed: 10% Discount',
-                points: '-300',
-                pointsColor: AppColors.error,
-                date: 'Yesterday, 11:15 AM',
-              ),
-              _buildTransactionItem(
-                icon: Icons.add_circle,
-                iconColor: AppColors.success,
-                title: "Tech Store",
-                subtitle: 'Purchase points earned',
-                points: '+120',
-                pointsColor: AppColors.success,
-                date: 'Feb 25, 4:45 PM',
-              ),
-              _buildTransactionItem(
-                icon: Icons.add_circle,
-                iconColor: AppColors.success,
-                title: "Joe's Coffee Shop",
-                subtitle: 'Purchase points earned',
-                points: '+50',
-                pointsColor: AppColors.success,
-                date: 'Feb 24, 9:20 AM',
-              ),
-              _buildTransactionItem(
-                icon: Icons.card_giftcard,
-                iconColor: AppColors.primary,
-                title: "Welcome Bonus",
-                subtitle: 'New member bonus',
-                points: '+100',
-                pointsColor: AppColors.success,
-                date: 'Feb 23, 10:00 AM',
-              ),
-              _buildTransactionItem(
-                icon: Icons.add_circle,
-                iconColor: AppColors.success,
-                title: "Best Bakery TT",
-                subtitle: 'Purchase points earned',
-                points: '+80',
-                pointsColor: AppColors.success,
-                date: 'Feb 22, 3:30 PM',
-              ),
-              _buildTransactionItem(
-                icon: Icons.redeem,
-                iconColor: AppColors.warning,
-                title: "Joe's Coffee Shop",
-                subtitle: 'Redeemed: Free Large Coffee',
-                points: '-500',
-                pointsColor: AppColors.error,
-                date: 'Feb 20, 8:15 AM',
-              ),
-              _buildTransactionItem(
-                icon: Icons.add_circle,
-                iconColor: AppColors.success,
-                title: "Tech Store",
-                subtitle: 'Purchase points earned',
-                points: '+200',
-                pointsColor: AppColors.success,
-                date: 'Feb 18, 1:00 PM',
-              ),
-            ],
-          ),
+          child: _buildHistoryBody(filteredTransactions),
         ),
       ],
     );
   }
 
-  Widget _buildFilterChip(String label, bool isSelected) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: AppDimensions.spacingS),
-      decoration: BoxDecoration(
-        color: isSelected ? AppColors.primary : AppColors.surface,
-        borderRadius: BorderRadius.circular(AppDimensions.radiusM),
+  Widget _buildHistoryBody(List<TransactionModel> filteredTransactions) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(AppDimensions.spacingL),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: AppColors.error),
+              ),
+              const SizedBox(height: AppDimensions.spacingM),
+              ElevatedButton(
+                onPressed: _loadTransactions,
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (filteredTransactions.isEmpty) {
+      return const Center(
+        child: Text('No transactions found for this filter.'),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadTransactions,
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(horizontal: AppDimensions.spacingL),
+        itemCount: filteredTransactions.length,
+        itemBuilder: (context, index) {
+          final transaction = filteredTransactions[index];
+          final isEarn = transaction.type == TransactionType.earn;
+          final pointsText = isEarn ? '+${transaction.points}' : '-${transaction.points}';
+          final iconColor = isEarn ? AppColors.success : AppColors.warning;
+
+          return Card(
+            margin: const EdgeInsets.only(bottom: AppDimensions.spacingM),
+            child: ListTile(
+              leading: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isEarn ? Icons.add_circle : Icons.redeem,
+                  color: iconColor,
+                  size: 20,
+                ),
+              ),
+              title: Text(
+                transaction.description,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 4),
+                  Text(
+                    'Type: ${transaction.type.name}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _formatDate(transaction.timestamp),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textSecondary.withValues(alpha: 0.7),
+                    ),
+                  ),
+                ],
+              ),
+              trailing: Text(
+                pointsText,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: isEarn ? AppColors.success : AppColors.error,
+                ),
+              ),
+              isThreeLine: true,
+            ),
+          );
+        },
       ),
-      child: Text(
-        label,
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-          color: isSelected ? Colors.white : AppColors.textSecondary,
+    );
+  }
+
+  Widget _buildFilterChip({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppDimensions.radiusM),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: AppDimensions.spacingS),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primary : AppColors.surface,
+          borderRadius: BorderRadius.circular(AppDimensions.radiusM),
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: isSelected ? Colors.white : AppColors.textSecondary,
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildTransactionItem({
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required String subtitle,
-    required String points,
-    required Color pointsColor,
-    required String date,
-  }) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: AppDimensions.spacingM),
-      child: ListTile(
-        leading: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: iconColor.withValues(alpha: 0.1),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, color: iconColor, size: 20),
-        ),
-        title: Text(
-          title,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textPrimary,
-          ),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              date,
-              style: TextStyle(
-                fontSize: 11,
-                color: AppColors.textSecondary.withValues(alpha: 0.7),
-              ),
-            ),
-          ],
-        ),
-        trailing: Text(
-          points,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: pointsColor,
-          ),
-        ),
-        isThreeLine: true,
-      ),
-    );
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+
+    if (difference.inDays == 0) {
+      return 'Today';
+    }
+    if (difference.inDays == 1) {
+      return 'Yesterday';
+    }
+    return '${date.day}/${date.month}/${date.year}';
   }
 }
+
+enum _HistoryFilter { all, earned, redeemed }
 
 // Profile Tab
 class ProfileTab extends StatefulWidget {
@@ -1023,11 +1074,7 @@ class _ProfileTabState extends State<ProfileTab> {
               Icons.person_outline,
               'Edit Profile',
               () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const EditProfileScreen(),
-                  ),
-                );
+                Navigator.of(context).pushNamed(AppRoutes.editProfile);
               },
             ),
             _buildProfileOption(
@@ -1035,11 +1082,7 @@ class _ProfileTabState extends State<ProfileTab> {
               Icons.settings_outlined,
               'Settings',
               () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const SettingsScreen(),
-                  ),
-                );
+                Navigator.of(context).pushNamed(AppRoutes.settings);
               },
             ),
             _buildProfileOption(
@@ -1055,11 +1098,7 @@ class _ProfileTabState extends State<ProfileTab> {
               Icons.notifications_outlined,
               'Notifications',
               () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const NotificationsScreen(),
-                  ),
-                );
+                Navigator.of(context).pushNamed(AppRoutes.notifications);
               },
             ),
             _buildProfileOption(
@@ -1080,6 +1119,7 @@ class _ProfileTabState extends State<ProfileTab> {
             ),
             
             // Debug: Add Test Data button (for development only)
+            if (kDebugMode) ...[
             const SizedBox(height: AppDimensions.spacingL),
             const Divider(),
             const SizedBox(height: AppDimensions.spacingS),
@@ -1103,6 +1143,7 @@ class _ProfileTabState extends State<ProfileTab> {
                 ),
               ),
             ),
+            ],
             
             const SizedBox(height: AppDimensions.spacingL),
             SizedBox(
@@ -1232,10 +1273,8 @@ class _ProfileTabState extends State<ProfileTab> {
               
               // Navigate to login screen
               if (mounted) {
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(
-                    builder: (context) => const LoginScreen(),
-                  ),
+                Navigator.of(context).pushNamedAndRemoveUntil(
+                  AppRoutes.login,
                   (route) => false,
                 );
               }
